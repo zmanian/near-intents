@@ -147,6 +147,11 @@ impl StateMachine for AuctionStateMachine {
 				let mut aggregate_flow = TokenDiff::new();
 
 				for (&intent_id, intent) in &self.pending_intents {
+					// Only TokenDiff intents participate in the auction.
+					let Some(user_diff) = intent.token_diff() else {
+						continue;
+					};
+
 					let Some(quotes) = self.quotes.get(&intent_id) else {
 						continue;
 					};
@@ -157,7 +162,7 @@ impl StateMachine for AuctionStateMachine {
 						.iter()
 						.filter(|q| {
 							token_diffs_compatible(
-								&intent.token_diff,
+								user_diff,
 								&q.solver_token_diff,
 							)
 						})
@@ -169,7 +174,7 @@ impl StateMachine for AuctionStateMachine {
 
 						// Accumulate the aggregate flow
 						let flow = aggregate_token_flow(
-							&intent.token_diff,
+							user_diff,
 							&best.solver_token_diff,
 						);
 						for (asset, amount) in flow {

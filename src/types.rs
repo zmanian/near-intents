@@ -24,10 +24,36 @@ pub type AssetId = String;
 /// by the Verifier contract.
 pub type TokenDiff = BTreeMap<AssetId, i128>;
 
+/// The action type within an intent.
+///
+/// The real protocol supports multiple intent types; `TokenDiff` is the
+/// primary trading primitive. Others handle withdrawals and transfers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IntentAction {
+	/// Declare desired token balance changes for atomic settlement.
+	TokenDiff { diff: TokenDiff },
+	/// Direct token transfer to another Verifier account.
+	Transfer {
+		receiver_id: String,
+		tokens: BTreeMap<AssetId, u64>,
+	},
+	/// Withdraw fungible tokens from the Verifier to an external address.
+	FtWithdraw {
+		token: AssetId,
+		receiver_id: String,
+		amount: u64,
+	},
+	/// Withdraw native NEAR from the Verifier.
+	NativeWithdraw {
+		receiver_id: String,
+		amount: u64,
+	},
+}
+
 /// A user intent following the NEAR Intents / Defuse protocol.
 ///
-/// The signer declares a `token_diff` specifying desired balance changes.
-/// Solvers compete to provide matching counter-diffs that satisfy the intent.
+/// The signer declares an action (typically `TokenDiff`) specifying desired
+/// balance changes. Solvers compete to provide matching counter-diffs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Intent {
 	/// Unique intent identifier (nonce in the real protocol is 256-bit).
@@ -36,8 +62,12 @@ pub struct Intent {
 	/// The account that signed this intent.
 	pub signer_id: String,
 
-	/// Desired token balance changes.
-	pub token_diff: TokenDiff,
+	/// The intent action (token_diff, transfer, withdraw, etc.).
+	pub action: IntentAction,
+
+	/// The Verifier contract this intent targets.
+	/// Prevents cross-contract replay attacks.
+	pub verifying_contract: String,
 
 	/// ISO 8601-style deadline (here simplified to unix millis).
 	/// The intent is invalid after this time.
@@ -47,6 +77,16 @@ pub struct Intent {
 	/// Solvers must provide quotes valid for at least this long.
 	/// Default in the real protocol is 60_000ms (1 minute).
 	pub min_quote_deadline_ms: u64,
+}
+
+impl Intent {
+	/// Extract the token_diff from this intent, if it is a TokenDiff action.
+	pub fn token_diff(&self) -> Option<&TokenDiff> {
+		match &self.action {
+			IntentAction::TokenDiff { diff } => Some(diff),
+			_ => None,
+		}
+	}
 }
 
 /// An RFQ (Request for Quote) broadcast to solvers.

@@ -22,7 +22,7 @@ use {
 	futures::{SinkExt, StreamExt},
 	mosaik::{discovery, primitives::Tag, *},
 	std::collections::BTreeMap,
-	types::{Intent, Quote, Settlement},
+	types::{Intent, IntentAction, Quote, Settlement},
 };
 
 #[tokio::main]
@@ -183,15 +183,20 @@ async fn main() -> anyhow::Result<()> {
 				intent.signer_id
 			);
 
+			// Only handle TokenDiff intents
+			let Some(user_diff) = intent.token_diff() else {
+				tracing::warn!("solver0: skipping non-TokenDiff intent {}", intent.id);
+				continue;
+			};
+
 			// Build a counter token_diff: opposite signs from the user's diff
 			let mut solver_diff = BTreeMap::new();
-			for (asset, &amount) in &intent.token_diff {
+			for (asset, &amount) in user_diff {
 				solver_diff.insert(asset.clone(), -amount);
 			}
 
 			// Compute the amount_out (what user receives)
-			let amount_out: u128 = intent
-				.token_diff
+			let amount_out: u128 = user_diff
 				.values()
 				.filter(|&&v| v > 0)
 				.map(|&v| v as u128)
@@ -227,13 +232,18 @@ async fn main() -> anyhow::Result<()> {
 				intent.signer_id
 			);
 
+			// Only handle TokenDiff intents
+			let Some(user_diff) = intent.token_diff() else {
+				tracing::warn!("solver1: skipping non-TokenDiff intent {}", intent.id);
+				continue;
+			};
+
 			let mut solver_diff = BTreeMap::new();
-			for (asset, &amount) in &intent.token_diff {
+			for (asset, &amount) in user_diff {
 				solver_diff.insert(asset.clone(), -amount);
 			}
 
-			let amount_out: u128 = intent
-				.token_diff
+			let amount_out: u128 = user_diff
 				.values()
 				.filter(|&&v| v > 0)
 				.map(|&v| v as u128)
@@ -273,10 +283,13 @@ async fn main() -> anyhow::Result<()> {
 		.send(Intent {
 			id: 1,
 			signer_id: "alice.near".into(),
-			token_diff: BTreeMap::from([
-				("nep141:usdc.near".into(), -1000),
-				("nep141:wrap.near".into(), 950),
-			]),
+			action: IntentAction::TokenDiff {
+				diff: BTreeMap::from([
+					("nep141:usdc.near".into(), -1000),
+					("nep141:wrap.near".into(), 950),
+				]),
+			},
+			verifying_contract: "intents.near".into(),
 			deadline_ms: now_ms + 120_000,
 			min_quote_deadline_ms: 60_000,
 		})
@@ -287,10 +300,13 @@ async fn main() -> anyhow::Result<()> {
 		.send(Intent {
 			id: 2,
 			signer_id: "bob.near".into(),
-			token_diff: BTreeMap::from([
-				("nep141:usdc.near".into(), -500),
-				("nep141:aurora.weth.near".into(), 15),
-			]),
+			action: IntentAction::TokenDiff {
+				diff: BTreeMap::from([
+					("nep141:usdc.near".into(), -500),
+					("nep141:aurora.weth.near".into(), 15),
+				]),
+			},
+			verifying_contract: "intents.near".into(),
 			deadline_ms: now_ms + 180_000,
 			min_quote_deadline_ms: 60_000,
 		})
@@ -301,10 +317,13 @@ async fn main() -> anyhow::Result<()> {
 		.send(Intent {
 			id: 3,
 			signer_id: "charlie.near".into(),
-			token_diff: BTreeMap::from([
-				("nep141:wrap.near".into(), -2000),
-				("nep141:meta-pool.near".into(), 1900),
-			]),
+			action: IntentAction::TokenDiff {
+				diff: BTreeMap::from([
+					("nep141:wrap.near".into(), -2000),
+					("nep141:meta-pool.near".into(), 1900),
+				]),
+			},
+			verifying_contract: "intents.near".into(),
 			deadline_ms: now_ms + 150_000,
 			min_quote_deadline_ms: 60_000,
 		})
@@ -322,7 +341,7 @@ async fn main() -> anyhow::Result<()> {
 			"auctioneer received intent id={} from {}: {:?}",
 			intent.id,
 			intent.signer_id,
-			intent.token_diff,
+			intent.action,
 		);
 		g0.execute(AuctionCommand::SubmitIntent(intent)).await?;
 	}
